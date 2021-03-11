@@ -525,11 +525,8 @@ size_t ofxFFmpegRecorder::addFrame(const ofPixels &pixels)
     float delta = std::chrono::duration<float>(now - m_RecordStartTime).count() - recordedDuration - m_TotalPauseDuration;
     const float framerate = 1.f / m_Fps;
 
-    while (m_AddedVideoFrames == 0 || delta >= framerate) {
-        delta -= framerate;
-        m_Frames.produce(new ofPixels(pixels));
-        m_AddedVideoFrames++;
-    }
+    m_Frames.produce(new ofPixels(pixels));
+    m_AddedVideoFrames++;
 
     return written;
 }
@@ -562,7 +559,7 @@ size_t ofxFFmpegRecorder::addBuffer(const ofSoundBuffer &buffer, float afps){
     float delta = std::chrono::duration<float>(now - m_RecordStartTime).count() - recordedDuration - m_TotalPauseDuration;
     const float framerate = 1.f / m_Fps;
 
-    while (m_AddedAudioFrames == 0 || delta >= framerate) {
+    while (m_AddedAudioFrames == 0) {
         delta -= framerate;
         m_Buffers.produce(new ofSoundBuffer(buffer));
         m_AddedAudioFrames++;
@@ -574,18 +571,21 @@ size_t ofxFFmpegRecorder::addBuffer(const ofSoundBuffer &buffer, float afps){
 void ofxFFmpegRecorder::stop()
 {
     if (m_CustomRecordingFile) {
-        #if defined(_WIN32)
-        _pclose(m_CustomRecordingFile);
-        #else
-        pclose(m_CustomRecordingFile);
-        #endif
-        m_CustomRecordingFile = nullptr;
-        m_AddedVideoFrames = 0;
-        m_AddedAudioFrames = 0;
-        joinThread();
+      while (m_Frames.size() > 0) {
+        usleep(100);
+      }
+#if defined(_WIN32)
+      _pclose(m_CustomRecordingFile);
+#else
+      pclose(m_CustomRecordingFile);
+#endif
+      m_CustomRecordingFile = nullptr;
+      m_AddedVideoFrames = 0;
+      m_AddedAudioFrames = 0;
+      joinThread();
     }
     else if (m_DefaultRecordingFile) {
-        fwrite("q", sizeof(char), 1, m_DefaultRecordingFile);
+      fwrite("q", sizeof(char), 1, m_DefaultRecordingFile);
         #if defined(_WIN32)
         _pclose(m_DefaultRecordingFile);
         #else
@@ -804,7 +804,8 @@ void ofxFFmpegRecorder::processFrame()
 {
     while (isRecording()) {
         ofPixels *pixels = nullptr;
-        if (m_Frames.consume(pixels) && pixels) {
+        bool d = m_Frames.consume(pixels);
+        if (d && pixels) {
             const unsigned char *data = pixels->getData();
             const size_t dataLength = m_VideoSize.x * m_VideoSize.y * 3;
             const size_t written = fwrite(data, sizeof(char), dataLength, m_CustomRecordingFile);
